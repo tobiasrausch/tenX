@@ -17,11 +17,18 @@ if args.tenxTable:
         for row in reader:
             geno[int(row['genotype']) + 1, int(row['calledgenotype']) + 1] += 1
 
+# Compute genotype concordances
 for i in range(1, 4):
     if sum(geno[1:, i]) != 0:
         discordance = (float(sum(geno[1:, i])) - float(geno[i, i]))/float(sum(geno[1:, i]))
         discordance = numpy.round(discordance, decimals=4)
-        print("Genotype " + str(i-1) + "discordance: ", discordance)
+        print("Genotype " + str(i-1) + " discordance: ", discordance)
+# FDR
+fdr=float(sum(geno[2:,1]))/float(sum(geno[2:, 1]) + sum(geno[2:,2]) + sum(geno[2:,3]))
+print("FDR: ", fdr)
+# FNR
+fnr=float(sum(geno[1,2:]))/float(sum(geno[1, 2:]) + sum(geno[2,2:]) + sum(geno[3,2:]))
+print("FNR: ", fnr)
 
 # Print genotype confusion matrix
 print("GT\tNA", end="")
