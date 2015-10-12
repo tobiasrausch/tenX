@@ -7,7 +7,7 @@ import numpy
 
 # Parse command line
 parser = argparse.ArgumentParser(description='Genotype comparison')
-parser.add_argument('-t', '--table', metavar='svfdr.txt', required=True, dest='tenxTable', help='genotype table (required)')
+parser.add_argument('-t', '--table', metavar='svgeno.txt', required=True, dest='tenxTable', help='genotype table (required)')
 args = parser.parse_args()
 
 geno = numpy.zeros((4, 4), dtype=numpy.int32)

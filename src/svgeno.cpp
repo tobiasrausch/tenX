@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
     if ((bcf_gt_allele(gt[sampleIndex*2]) != -1) && (bcf_gt_allele(gt[sampleIndex*2 + 1]) != -1)) {
       int gt_type = bcf_gt_allele(gt[sampleIndex*2]) + bcf_gt_allele(gt[sampleIndex*2 + 1]);
       std::string gtval;
-      if (bcf_gt_is_phased(bcf_alleles2gt(bcf_gt_allele(gt[sampleIndex*2]), bcf_gt_allele(gt[sampleIndex*2 + 1])))) {
+      if (bcf_gt_is_phased(gt[sampleIndex*2 + 1])) {
 	std::ostringstream s;
 	s << bcf_gt_allele(gt[sampleIndex*2]) << '|' << bcf_gt_allele(gt[sampleIndex*2 + 1]);
 	gtval = s.str();
@@ -286,7 +286,7 @@ int main(int argc, char **argv) {
 	    if (covH1 < 1) {
 	      if (covH2 < 1) {
 		if ((srH1 >= 2) && (srH2 >= 2)) {
-		  gtstr = "1/1";
+		  gtstr = "1|1";
 		  gtcalled = 2;
 		}
 	      } else {
@@ -303,7 +303,7 @@ int main(int argc, char **argv) {
 		}
 	      } else {
 		if ((srH1 == 0) && (srH2 == 0)) {
-		  gtstr = "0/0";
+		  gtstr = "0|0";
 		  gtcalled = 0;
 		}
 	      }
