@@ -94,6 +94,7 @@ int main(int argc, char **argv) {
   std::string sampleName = std::string(argv[1]);
   int32_t readLen = 150;
   int32_t bpwindow = 25;
+  double covThreshold = 2.0;
 
   // Load bcf file
   htsFile* ifile = bcf_open(argv[2], "r");
@@ -283,8 +284,8 @@ int main(int argc, char **argv) {
 	  std::string gtstr = "None";
 	  int gtcalled = -1;
 	  if (uniquePS != "None") {
-	    if (covH1 < 1) {
-	      if (covH2 < 1) {
+	    if (covH1 < covThreshold) {
+	      if (covH2 < covThreshold) {
 		if ((srH1 >= 2) && (srH2 >= 2)) {
 		  gtstr = "1|1";
 		  gtcalled = 2;
@@ -296,7 +297,7 @@ int main(int argc, char **argv) {
 		}
 	      }
 	    } else {
-	      if (covH2 < 1) {
+	      if (covH2 < covThreshold) {
 		if ((srH1 == 0) && (srH2 >= 2)) {
 		  gtstr = "0|1";
 		  gtcalled = 1;
