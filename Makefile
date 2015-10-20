@@ -33,7 +33,7 @@ HTSLIBSOURCES = $(wildcard src/htslib/*.c) $(wildcard src/htslib/*.h)
 SVSOURCES = $(wildcard src/*.h) $(wildcard src/*.cpp)
 
 # Targets
-TARGETS = .htslib .boost src/svgeno src/bamsvalign
+TARGETS = .htslib .boost src/genoDEL src/genoINS
 
 all:   	$(TARGETS)
 
@@ -43,10 +43,10 @@ all:   	$(TARGETS)
 .boost: $(BOOSTSOURCES)
 	cd src/modular-boost && ./bootstrap.sh --prefix=${PWD}/src/modular-boost --without-icu --with-libraries=iostreams,filesystem,system,program_options,date_time && ./b2 && ./b2 headers && cd ../../ && touch .boost
 
-src/svgeno: .htslib .boost $(SVSOURCES)
+src/genoDEL: .htslib .boost $(SVSOURCES)
 	$(CXX) $(CXXFLAGS) $@.cpp -o $@ $(LDFLAGS)
 
-src/bamsvalign: .htslib .boost $(SVSOURCES)
+src/genoINS: .htslib .boost $(SVSOURCES)
 	$(CXX) $(CXXFLAGS) $@.cpp -o $@ $(LDFLAGS)
 
 clean:

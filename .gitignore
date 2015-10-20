@@ -1,3 +1,4 @@
 .htslib
 .boost
-src/svgeno
+src/genoDEL
+src/genoINS
