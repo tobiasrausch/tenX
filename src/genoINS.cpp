@@ -49,7 +49,7 @@ struct Config {
   int32_t minimumFlankSize;
   uint32_t mincov;
   uint32_t mapqual;
-  uint32_t identity;
+  double scoring;
   std::string sample;
   boost::filesystem::path vcffile;
   boost::filesystem::path genome;
@@ -65,10 +65,10 @@ int main(int argc, char **argv) {
     ("help,?", "show help message")
     ("sample,s", boost::program_options::value<std::string>(&c.sample)->default_value("NA12878"), "Sample")
     ("flanking,f", boost::program_options::value<int32_t>(&c.minimumFlankSize)->default_value(13), "breakpoint padding")
-    ("mincov,m", boost::program_options::value<uint32_t>(&c.mincov)->default_value(15), "min. coverage")
+    ("mincov,m", boost::program_options::value<uint32_t>(&c.mincov)->default_value(5), "min. haploid coverage")
     ("qual,q", boost::program_options::value<uint32_t>(&c.mapqual)->default_value(20), "min. mapping quality")
-    ("identity,i", boost::program_options::value<uint32_t>(&c.identity)->default_value(80), "min. percent identity")
-    ("vcf,v", boost::program_options::value<boost::filesystem::path>(&c.vcffile)->default_value("sample.vcf"), "input vcf file")
+    ("scoring,r", boost::program_options::value<double>(&c.scoring)->default_value(0.9), "min. carrier alignment score")
+    ("vcf,v", boost::program_options::value<boost::filesystem::path>(&c.vcffile)->default_value("sample.bcf"), "input bcf file")
     ("genome,g", boost::program_options::value<boost::filesystem::path>(&c.genome), "genome fasta file")
     ;
 
@@ -99,10 +99,6 @@ int main(int argc, char **argv) {
   // Load bcf file
   htsFile* ifile = hts_open(c.vcffile.string().c_str(), "r");
   hts_idx_t* bcfidx = bcf_index_load(c.vcffile.string().c_str());
-  if (!ifile) {
-    std::cerr << "Fail to load " << c.vcffile.string() << "!" << std::endl;
-    return 1;
-  }
   bcf_hdr_t* hdr = bcf_hdr_read(ifile);
 
   // Load bam file
@@ -173,7 +169,7 @@ int main(int argc, char **argv) {
 ;	    bcf_get_info_int32(hdr, rec, "INSLEN", &inslen, &ninslen);
 	    bcf_get_info_string(hdr, rec, "CONSENSUS", &cons, &ncons);
 	    std::string consensus = boost::to_upper_copy(std::string(cons));
-	    
+
 	    // Get reference junk
 	    std::string ref = boost::to_upper_copy(std::string(seq->seq.s + std::max((int32_t) 0, (int32_t) (rec->pos - consensus.size())), seq->seq.s + (*svend) + consensus.size()));
 
@@ -186,7 +182,7 @@ int main(int argc, char **argv) {
 	    torali::gotoh(consensus, ref, alignRef, semiglobal, sc);
 	    TAIndex cStart, cEnd, rStart, rEnd;
 	    torali::_findSplit(alignRef, cStart, cEnd, rStart, rEnd);
-	    
+
 	    // Get only the inserted sequence
 	    consensus = consensus.substr(cStart, (cEnd - cStart));
 
@@ -276,14 +272,13 @@ int main(int argc, char **argv) {
 	    int32_t gtcalled = -1;
 	    double medH1 = -1;
 	    double medH2 = -1;
-	    if ((scoreH1.size() + scoreH2.size()) >= c.mincov) {
+	    if ((scoreH1.size() >= c.mincov) && (scoreH2.size() >= c.mincov)) {
 	      std::sort(scoreH1.begin(), scoreH1.end());
 	      std::sort(scoreH2.begin(), scoreH2.end());
 	      medH1 = scoreH1[scoreH1.size()/2];
 	      medH2 = scoreH2[scoreH2.size()/2];
-	      double alignScoreTh = (double) (c.identity) / 100.0;
-	      if (medH1 < alignScoreTh) {
-		if (medH2 < alignScoreTh) {
+	      if (medH1 < c.scoring) {
+		if (medH2 < c.scoring) {
 		  gtstr = "0|0";
 		  gtcalled = 0;
 		} else {
@@ -291,7 +286,7 @@ int main(int argc, char **argv) {
 		  gtcalled = 1;
 		}
 	      } else {
-		if (medH2 < alignScoreTh) {
+		if (medH2 < c.scoring) {
 		  gtstr = "1|0";
 		  gtcalled = 1;
 		} else {
