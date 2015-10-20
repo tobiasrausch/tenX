@@ -1,6 +1,6 @@
 /*
 ============================================================================
-SV FDR
+10X Deletion Genotyper
 ============================================================================
 Copyright (C) 2015 Tobias Rausch
 
@@ -21,16 +21,27 @@ Contact: Tobias Rausch (rausch@embl.de)
 ============================================================================
 */
 
+#include <boost/program_options/cmdline.hpp>
+#include <boost/program_options/options_description.hpp>
+#include <boost/program_options/parsers.hpp>
+#include <boost/program_options/variables_map.hpp>
+#include <boost/filesystem.hpp>
 #include <iostream>
-#include <sstream>
-#include <set>
-#include <map>
 #include <vector>
-#include <algorithm>
 #include <htslib/vcf.h>
 #include <htslib/sam.h>
 #include <math.h> 
 #include <stdio.h>
+
+struct Config {
+  uint32_t readlen;
+  uint32_t bprefine;
+  uint32_t srsupport;
+  double coverage;
+  std::string sample;
+  boost::filesystem::path vcffile;
+  boost::filesystem::path bamfile;
+};
 
 inline bool splitPoint(bam1_t* rec, int32_t& clipSize, int32_t& split, unsigned int qualCut) {
   // Check for single soft-clip
@@ -85,29 +96,52 @@ inline void addBpCounts(bam1_t* rec, int32_t regionStart, int32_t regionEnd, std
 }
 
 int main(int argc, char **argv) {
-  if (argc != 4) {
-    std::cerr << "Usage: " << argv[0] << " NA12878 <in.vcf.gz> <sample.bam>" << std::endl;
-    return 1; 
-  }
+  Config c;
 
   // Parameter
-  std::string sampleName = std::string(argv[1]);
-  int32_t readLen = 150;
-  int32_t bpwindow = 25;
-  double covThreshold = 2.0;
+  boost::program_options::options_description generic("Generic options");
+  generic.add_options()
+    ("help,?", "show help message")
+    ("sample,s", boost::program_options::value<std::string>(&c.sample)->default_value("NA12878"), "sample name")
+    ("readlen,r", boost::program_options::value<uint32_t>(&c.readlen)->default_value(150), "approx. read length")
+    ("coverage,c", boost::program_options::value<double>(&c.coverage)->default_value(2.0), "coverage noise")
+    ("srsupport,p", boost::program_options::value<uint32_t>(&c.srsupport)->default_value(2), "min. deletion SR support")
+    ("bprefine,b", boost::program_options::value<uint32_t>(&c.bprefine)->default_value(25), "breakpoint refinement window")
+    ("vcf,v", boost::program_options::value<boost::filesystem::path>(&c.vcffile)->default_value("sample.vcf"), "input vcf file")
+    ;
 
-  // Load bcf file
-  htsFile* ifile = bcf_open(argv[2], "r");
-  if (!ifile) {
-    std::cerr << "Fail to load " << argv[2] << "!" << std::endl;
+  boost::program_options::options_description hidden("Hidden options");
+  hidden.add_options()
+    ("input-file", boost::program_options::value<boost::filesystem::path>(&c.bamfile), "input bam file")
+    ;
+
+  boost::program_options::positional_options_description pos_args;
+  pos_args.add("input-file", -1);
+
+  boost::program_options::options_description cmdline_options;
+  cmdline_options.add(generic).add(hidden);
+  boost::program_options::options_description visible_options;
+  visible_options.add(generic);
+  boost::program_options::variables_map vm;
+  boost::program_options::store(boost::program_options::command_line_parser(argc, argv).options(cmdline_options).positional(pos_args).run(), vm);
+  boost::program_options::notify(vm);
+
+
+  // Check command line arguments
+  if ((vm.count("help")) || (!vm.count("input-file")) || (!vm.count("vcf"))) {
+    std::cout << "Usage: " << argv[0] << " [OPTIONS] -v <sample.vcf> <sample.10X.bam>" << std::endl;
+    std::cout << visible_options << "\n";
     return 1;
   }
+
+  // Load bcf file
+  htsFile* ifile = bcf_open(c.vcffile.string().c_str(), "r");
   bcf_hdr_t* hdr = bcf_hdr_read(ifile);
   bcf1_t* rec = bcf_init();
 
   // Load bam file
-  samFile* samfile = sam_open(argv[3], "r");
-  hts_idx_t* idx = sam_index_load(samfile, argv[3]);
+  samFile* samfile = sam_open(c.bamfile.string().c_str(), "r");
+  hts_idx_t* idx = sam_index_load(samfile, c.bamfile.string().c_str());
   bam_hdr_t* hd = sam_hdr_read(samfile);
 
   // Parse VCF
@@ -119,7 +153,7 @@ int main(int argc, char **argv) {
   int32_t* gt = NULL;
   int sampleIndex = 0;
   for (int i = 0; i < bcf_hdr_nsamples(hdr); ++i) {
-    if (hdr->samples[i] == sampleName) {
+    if (hdr->samples[i] == c.sample) {
       sampleIndex = i;
       break;
     }
@@ -154,8 +188,8 @@ int main(int argc, char **argv) {
 	  if ((chrName == "chrX") || (chrName == "chrY")) continue;   // Only autosomes
 	    
 	  int32_t regionChr = bam_name2id(hd, chrName.c_str());
-	  int32_t regionStart = std::max(0, rec->pos - readLen);
-	  int32_t regionEnd = (*svend) + readLen;
+	  int32_t regionStart = std::max(0, (int32_t) rec->pos - (int32_t) c.readlen);
+	  int32_t regionEnd = (*svend) + c.readlen;
 	  int32_t regionSize = regionEnd - regionStart;
 
 	  // Split-read information
@@ -231,10 +265,10 @@ int main(int argc, char **argv) {
 
 	  if (singlePhasedBlock) {
 	    // Search refined breakpoint
-	    int32_t svstartbeg = std::max(0, (rec->pos - regionStart) - bpwindow);
-	    int32_t svstartend = (rec->pos - regionStart) + bpwindow;
-	    int32_t svendbeg = ((*svend) - regionStart) - bpwindow;
-	    int32_t svendend = ((*svend) - regionStart) + bpwindow;
+	    int32_t svstartbeg = std::max(0, (int32_t) rec->pos - regionStart - (int32_t) c.bprefine);
+	    int32_t svstartend = (rec->pos - regionStart) + c.bprefine;
+	    int32_t svendbeg = ((*svend) - regionStart) - c.bprefine;
+	    int32_t svendend = ((*svend) - regionStart) + c.bprefine;
 	    if (svstartend > svendbeg) {
 	      int32_t mid = (svendbeg + svstartend) / 2;
 	      svstartend = mid - 1;
@@ -284,21 +318,21 @@ int main(int argc, char **argv) {
 	  std::string gtstr = "None";
 	  int gtcalled = -1;
 	  if (uniquePS != "None") {
-	    if (covH1 < covThreshold) {
-	      if (covH2 < covThreshold) {
-		if ((srH1 >= 2) && (srH2 >= 2)) {
+	    if (covH1 < c.coverage) {
+	      if (covH2 < c.coverage) {
+		if ((srH1 >= c.srsupport) && (srH2 >= c.srsupport)) {
 		  gtstr = "1|1";
 		  gtcalled = 2;
 		}
 	      } else {
-		if ((srH1 >= 2) && (srH2 == 0)) { 
+		if ((srH1 >= c.srsupport) && (srH2 == 0)) { 
 		    gtstr = "1|0";
 		    gtcalled = 1;
 		}
 	      }
 	    } else {
-	      if (covH2 < covThreshold) {
-		if ((srH1 == 0) && (srH2 >= 2)) {
+	      if (covH2 < c.coverage) {
+		if ((srH1 == 0) && (srH2 >= c.srsupport)) {
 		  gtstr = "0|1";
 		  gtcalled = 1;
 		}
