@@ -49,7 +49,7 @@ struct Config {
   int32_t minimumFlankSize;
   uint32_t mincov;
   uint32_t mapqual;
-  double scoring;
+  double alignment;
   std::string sample;
   boost::filesystem::path vcffile;
   boost::filesystem::path genome;
@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
     ("flanking,f", boost::program_options::value<int32_t>(&c.minimumFlankSize)->default_value(13), "breakpoint padding")
     ("mincov,m", boost::program_options::value<uint32_t>(&c.mincov)->default_value(5), "min. haploid coverage")
     ("qual,q", boost::program_options::value<uint32_t>(&c.mapqual)->default_value(20), "min. mapping quality")
-    ("scoring,r", boost::program_options::value<double>(&c.scoring)->default_value(0.9), "min. carrier alignment score")
+    ("alignment,a", boost::program_options::value<double>(&c.alignment)->default_value(0.9), "min. expected alignment quality")
     ("vcf,v", boost::program_options::value<boost::filesystem::path>(&c.vcffile)->default_value("sample.bcf"), "input bcf file")
     ("genome,g", boost::program_options::value<boost::filesystem::path>(&c.genome), "genome fasta file")
     ;
@@ -117,16 +117,20 @@ int main(int argc, char **argv) {
   char* cons = NULL;
   int ngt = 0;
   int32_t* gt = NULL;
-  int sampleIndex = 0;
+  int sampleIndex = -1;
   for (int i = 0; i < bcf_hdr_nsamples(hdr); ++i) {
     if (hdr->samples[i] == c.sample) {
       sampleIndex = i;
       break;
     }
   }
+  if (sampleIndex == -1) {
+      std::cerr << c.sample << " is not part of the VCF file." << std::endl;
+      return 1;
+  }
 
   // Header
-  std::cout << "chr\tstart\tend\tid\tinslen\thaplotype\tgenotype\tphasedblockid\tscoreH1\tscoreH2\tcalledhaplotype\tcalledgenotype" << std::endl;
+  std::cout << "chr\tstart\tend\tid\tinslen\thaplotype\tgenotype\tphasedblockid\tcovH1\tcovH2\tcalledhaplotype\tcalledgenotype" << std::endl;
 
   // Parse genome
   kseq_t *seq;
@@ -183,16 +187,11 @@ int main(int argc, char **argv) {
 	    TAIndex cStart, cEnd, rStart, rEnd;
 	    torali::_findSplit(alignRef, cStart, cEnd, rStart, rEnd);
 
-	    // Get only the inserted sequence
-	    consensus = consensus.substr(cStart, (cEnd - cStart));
-
-	    // Re-align the inserted sequence to the local reference to ensure it's unique
-	    TAlign localAlign;
-	    double locsc = torali::gotoh(consensus, ref, localAlign, semiglobal);
-	    locsc /= (consensus.size() * 5);
-
-	    // Unique inserted sequence?
-	    if (locsc >= 0.5 ) continue;
+	    //for(TAIndex i = 0; i<alignRef.shape()[0]; ++i) {
+	    //for(TAIndex j = 0; j<alignRef.shape()[1]; ++j) std::cerr << alignRef[i][j];
+	    //std::cerr << std::endl;
+	    //}
+	    //std::cerr << cStart << ',' << cEnd << ':' << rStart << ',' << rEnd << std::endl;
 
 	    // SV region
 	    std::string chrName = bcf_hdr_id2name(hdr, rec->rid);
@@ -200,7 +199,7 @@ int main(int argc, char **argv) {
 	    if ((chrName == "chrX") || (chrName == "chrY")) continue;   // Only autosomes
 	    
 	    // Alignment scores
-	    typedef std::vector<double> TScore;
+	    typedef std::vector<bool> TScore;
 	    TScore scoreH1;
 	    TScore scoreH2;
 	      
@@ -216,8 +215,20 @@ int main(int argc, char **argv) {
 	    bool psSet = false;
 	    while (sam_itr_next(samfile, iter, r) >= 0) {
 	      if (r->core.flag & (BAM_FSECONDARY | BAM_FQCFAIL | BAM_FDUP | BAM_FSUPPLEMENTARY | BAM_FUNMAP)) continue;
-	      if (((r->core.pos > regionStart) || ((r->core.pos + r->core.l_qseq) < (rec->pos + c.minimumFlankSize))) && ((r->core.pos > ((*svend) - c.minimumFlankSize)) || ((r->core.pos + r->core.l_qseq) < regionEnd))) continue;
-	      if (r->core.qual < c.mapqual) continue;
+	      if ((r->core.l_qseq < 35) || (r->core.qual < c.mapqual)) continue;
+
+	      bool hasSoftClip = false;
+	      uint32_t* cigar = bam_get_cigar(r);
+	      for (std::size_t i = 0; i < r->core.n_cigar; ++i) {
+		if (bam_cigar_op(cigar[i]) == BAM_CSOFT_CLIP) {
+		  hasSoftClip = true;
+		  break;
+		}
+	      }
+	      if (!hasSoftClip) {
+		if (((r->core.pos + c.minimumFlankSize > rec->pos) || (r->core.pos + r->core.l_qseq < rec->pos + c.minimumFlankSize)) && ((r->core.pos + c.minimumFlankSize > (*svend)) || (r->core.pos + r->core.l_qseq < (*svend) + c.minimumFlankSize))) continue;
+	      }
+
 	      uint8_t *psptr = bam_aux_get(r, "PS");
 	      if (psptr) {
 		// Only consider reads belonging to a phased block
@@ -255,10 +266,39 @@ int main(int argc, char **argv) {
 		  // Compute alignment to consensus
 		  TAlign align;
 		  torali::AlignConfig<true, true> gapfree;
-		  double sc = torali::gotoh(consensus, sequence, align, gapfree);
-		  sc /= (consensus.size() * 5);
-		  if (hap == 1) scoreH1.push_back(sc);
-		  else scoreH2.push_back(sc);
+		  torali::gotoh(sequence, consensus, align, gapfree);
+		  TAIndex consStart = 0;
+		  TAIndex consEnd = 0;
+		  TAIndex consAlignLength = 0;
+		  int altScore = torali::_coreAlignScore(align, consStart, consEnd, consAlignLength);
+		  int scoreThresholdAlt = (int) (c.alignment * consAlignLength * 5 + (1.0 - c.alignment) * consAlignLength * (-4));
+
+		  // Compute alignment to reference haplotype
+		  torali::gotoh(sequence, ref, align, gapfree);
+		  TAIndex rCoreStart = 0;
+		  TAIndex rCoreEnd = 0;
+		  TAIndex rAlignLength = 0;
+		  int refScore = torali::_coreAlignScore(align, rCoreStart, rCoreEnd, rAlignLength);
+		  int scoreThresholdRef = (int) (c.alignment * rAlignLength * 5 + (1.0 - c.alignment) * rAlignLength * (-4));
+		  
+		  // Any confident alignment?
+		  if ((refScore > scoreThresholdRef) || (altScore > scoreThresholdAlt)) {
+		    if ( (double) refScore / (double) scoreThresholdRef > (double) altScore / (double) scoreThresholdAlt) {
+		      if (rCoreEnd - rCoreStart >= 35) {
+			if (((rCoreStart + c.minimumFlankSize < rStart) && (rCoreEnd - c.minimumFlankSize > rStart)) || ((rCoreStart + c.minimumFlankSize < rEnd) && (rCoreEnd - c.minimumFlankSize > rEnd))) {
+			  if (hap == 1) scoreH1.push_back(false);
+			  else scoreH2.push_back(false);
+			}
+		      }
+		    } else {
+		      if (consEnd - consStart >= 35) {
+			if ((( consStart + c.minimumFlankSize < cStart) && (consEnd - c.minimumFlankSize > cStart)) || (( consStart + c.minimumFlankSize < cEnd) && (consEnd - c.minimumFlankSize > cEnd))) {
+			  if (hap == 1) scoreH1.push_back(true);
+			  else scoreH2.push_back(true);
+			}
+		      }
+		    }
+		  }
 		}
 	      }
 	    }
@@ -277,8 +317,8 @@ int main(int argc, char **argv) {
 	      std::sort(scoreH2.begin(), scoreH2.end());
 	      medH1 = scoreH1[scoreH1.size()/2];
 	      medH2 = scoreH2[scoreH2.size()/2];
-	      if (medH1 < c.scoring) {
-		if (medH2 < c.scoring) {
+	      if (!medH1) {
+		if (!medH2) {
 		  gtstr = "0|0";
 		  gtcalled = 0;
 		} else {
@@ -286,7 +326,7 @@ int main(int argc, char **argv) {
 		  gtcalled = 1;
 		}
 	      } else {
-		if (medH2 < c.scoring) {
+		if (!medH2) {
 		  gtstr = "1|0";
 		  gtcalled = 1;
 		} else {
@@ -297,7 +337,7 @@ int main(int argc, char **argv) {
 	    }
 
 	    // Output genotype
-	    std::cout << bcf_hdr_id2name(hdr, rec->rid) << '\t' << (rec->pos + 1) << '\t' << (*svend) << '\t' << rec->d.id << '\t' << (*inslen) << '\t' << gtval << '\t' << gt_type << '\t' << uniquePS << "\t" << medH1 << "\t" << medH2 << "\t" << gtstr << "\t" << gtcalled << std::endl;
+	    std::cout << bcf_hdr_id2name(hdr, rec->rid) << '\t' << (rec->pos + 1) << '\t' << (*svend) << '\t' << rec->d.id << '\t' << (*inslen) << '\t' << gtval << '\t' << gt_type << '\t' << uniquePS << "\t" << scoreH1.size() << "\t" << scoreH2.size() << "\t" << gtstr << "\t" << gtcalled << std::endl;
 	  }	  
 	}
       }
