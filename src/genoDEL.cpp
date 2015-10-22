@@ -104,7 +104,7 @@ int main(int argc, char **argv) {
     ("help,?", "show help message")
     ("sample,s", boost::program_options::value<std::string>(&c.sample)->default_value("NA12878"), "sample name")
     ("readlen,r", boost::program_options::value<uint32_t>(&c.readlen)->default_value(150), "approx. read length")
-    ("coverage,c", boost::program_options::value<double>(&c.coverage)->default_value(2.0), "coverage noise")
+    ("coverage,c", boost::program_options::value<double>(&c.coverage)->default_value(30), "expected coverage")
     ("srsupport,p", boost::program_options::value<uint32_t>(&c.srsupport)->default_value(2), "min. deletion SR support")
     ("bprefine,b", boost::program_options::value<uint32_t>(&c.bprefine)->default_value(25), "breakpoint refinement window")
     ("vcf,v", boost::program_options::value<boost::filesystem::path>(&c.vcffile)->default_value("sample.vcf"), "input vcf file")
@@ -318,26 +318,26 @@ int main(int argc, char **argv) {
 	  std::string gtstr = "None";
 	  int gtcalled = -1;
 	  if (uniquePS != "None") {
-	    if (covH1 < c.coverage) {
-	      if (covH2 < c.coverage) {
+	    if (covH1 < (c.coverage / 15)) {
+	      if (covH2 < (c.coverage / 15)) {
 		if ((srH1 >= c.srsupport) && (srH2 >= c.srsupport)) {
 		  gtstr = "1|1";
 		  gtcalled = 2;
 		}
 	      } else {
-		if ((srH1 >= c.srsupport) && (srH2 == 0)) { 
+		if ((srH1 >= c.srsupport) && (covH2 > (c.coverage / 5))) { 
 		    gtstr = "1|0";
 		    gtcalled = 1;
 		}
 	      }
 	    } else {
-	      if (covH2 < c.coverage) {
-		if ((srH1 == 0) && (srH2 >= c.srsupport)) {
+	      if (covH2 < (c.coverage / 15)) {
+		if ((covH1 > (c.coverage / 5)) && (srH2 >= c.srsupport)) {
 		  gtstr = "0|1";
 		  gtcalled = 1;
 		}
 	      } else {
-		if ((srH1 == 0) && (srH2 == 0)) {
+		if ((covH1 > (c.coverage / 5)) && (covH2 > (c.coverage / 5))) {
 		  gtstr = "0|0";
 		  gtcalled = 0;
 		}
