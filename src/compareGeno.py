@@ -16,7 +16,7 @@ if args.tenxTable:
     with open(args.tenxTable) as csvfile:
         reader = csv.DictReader(csvfile, delimiter='\t')
         for row in reader:
-            if ('size' not in row.keys()) or (int(row['size'])>args.minsize):
+            if ('size' not in row.keys()) or (int(row['size']) > args.minsize):
                 geno[int(row['genotype']) + 1, int(row['calledgenotype']) + 1] += 1
 
 # Compute genotype concordances
@@ -26,12 +26,12 @@ for i in range(1, 4):
         discordance = numpy.round(discordance, decimals=4)
         print("Genotype " + str(i-1) + " discordance: ", discordance)
 # FDR
-denom=sum(geno[2:, 1]) + sum(geno[2:,2]) + sum(geno[2:,3])
-fdr=float(sum(geno[2:,1]))/float(denom)
+denom = sum(geno[2:, 1]) + sum(geno[2:, 2]) + sum(geno[2:, 3])
+fdr = float(sum(geno[2:, 1]))/float(denom)
 print("FDR: ", fdr, " (#n=", denom, ")", sep="")
 # FNR
-denom=sum(geno[1, 2:]) + sum(geno[2,2:]) + sum(geno[3,2:])
-fnr=float(sum(geno[1,2:]))/float(denom)
+denom = sum(geno[1, 2:]) + sum(geno[2, 2:]) + sum(geno[3, 2:])
+fnr = float(sum(geno[1, 2:]))/float(denom)
 print("FNR: ", fnr, " (#n=", denom, ")", sep="")
 
 # Print genotype confusion matrix

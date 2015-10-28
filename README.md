@@ -41,4 +41,10 @@ Run the haplotype-aware SV re-genotyping of the SV site list:
 
 `./genoDEL -v ALL.wgs.integrated_sv_map_v2.20130502.svs.genotypes.vcf.gz NA12878.10X.bam > del.tsv`
 
+Compare 1000 Genomes phased & imputed genotypes with 10X Genomics derived genotypes:
+
 `python compareGeno.py -t del.tsv`
+
+Estimate phasing accuracy:
+
+`python comparePhasing.py -t del.tsv`
