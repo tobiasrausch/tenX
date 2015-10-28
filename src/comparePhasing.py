@@ -36,7 +36,7 @@ if args.tenxTable:
                             correctPhase += 1
                     haplotypeTotal += 1
                     if hCalled[0] == oldHCalled[0]:
-                        haplotypeCooccurrence +=1
+                        haplotypeCooccurrence += 1
         if total:
             print("Phasing accuracy: ", float(correctPhase)/float(total), " ( #n =", total, ")")
         print("Haplotype co-occurrence: ", float(haplotypeCooccurrence)/float(haplotypeTotal), " ( #n =", haplotypeTotal, ")")
