@@ -19,6 +19,6 @@ Download the NA12878 10X Genomics phased bam file from http://10xgenomics.com/ a
 
 Run the haplotype-aware SV re-genotyping of the SV site list:
 
-`./src/genoDEL -s NA12878 -v ALL.wgs.integrated_sv_map_v2.20130502.svs.genotypes.vcf.gz NA12878_phased_possorted_bam.bam > deletion.tsv
+`./src/genoDEL -s NA12878 -v ALL.wgs.integrated_sv_map_v2.20130502.svs.genotypes.vcf.gz NA12878_phased_possorted_bam.bam > deletion.tsv`
 
 `python /g/solexa/home/rausch/scripts/cpp/tenX/src/compareGeno.py -t deletion.tsv > deletion.summary`
