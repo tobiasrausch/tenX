@@ -8,6 +8,7 @@ import numpy
 # Parse command line
 parser = argparse.ArgumentParser(description='Genotype comparison')
 parser.add_argument('-t', '--table', metavar='svgeno.txt', required=True, dest='tenxTable', help='genotype table (required)')
+parser.add_argument('-m', '--minsize', type=int, default=50, metavar='50', required=False, dest='minsize', help='min. SV size (optional)')
 args = parser.parse_args()
 
 geno = numpy.zeros((4, 4), dtype=numpy.int32)
@@ -15,7 +16,8 @@ if args.tenxTable:
     with open(args.tenxTable) as csvfile:
         reader = csv.DictReader(csvfile, delimiter='\t')
         for row in reader:
-            geno[int(row['genotype']) + 1, int(row['calledgenotype']) + 1] += 1
+            if ('size' not in row.keys()) or (int(row['size'])>args.minsize):
+                geno[int(row['genotype']) + 1, int(row['calledgenotype']) + 1] += 1
 
 # Compute genotype concordances
 for i in range(1, 4):
@@ -24,11 +26,13 @@ for i in range(1, 4):
         discordance = numpy.round(discordance, decimals=4)
         print("Genotype " + str(i-1) + " discordance: ", discordance)
 # FDR
-fdr=float(sum(geno[2:,1]))/float(sum(geno[2:, 1]) + sum(geno[2:,2]) + sum(geno[2:,3]))
-print("FDR: ", fdr)
+denom=sum(geno[2:, 1]) + sum(geno[2:,2]) + sum(geno[2:,3])
+fdr=float(sum(geno[2:,1]))/float(denom)
+print("FDR: ", fdr, " (#n=", denom, ")", sep="")
 # FNR
-fnr=float(sum(geno[1,2:]))/float(sum(geno[1, 2:]) + sum(geno[2,2:]) + sum(geno[3,2:]))
-print("FNR: ", fnr)
+denom=sum(geno[1, 2:]) + sum(geno[2,2:]) + sum(geno[3,2:])
+fnr=float(sum(geno[1,2:]))/float(denom)
+print("FNR: ", fnr, " (#n=", denom, ")", sep="")
 
 # Print genotype confusion matrix
 print("GT\tNA", end="")
