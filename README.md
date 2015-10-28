@@ -24,6 +24,10 @@ Add the Boost sub-libraries:
 
 `git submodule update`
 
+Build the programs:
+
+`cd ../../`
+
 `make all`
 
 Example
