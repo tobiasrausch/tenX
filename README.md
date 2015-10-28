@@ -21,4 +21,4 @@ Run the haplotype-aware SV re-genotyping of the SV site list:
 
 `./genoDEL -v ALL.wgs.integrated_sv_map_v2.20130502.svs.genotypes.vcf.gz NA12878.10X.bam > del.tsv`
 
-`python compareGeno.py -t del.tsv > deletion.summary`
+`python compareGeno.py -t del.tsv`
