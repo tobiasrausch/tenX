@@ -4,9 +4,25 @@ SV Re-genotyping Methods for 10X Genomics
 Installing
 ----------
 
-`git clone --recursive https://github.com/tobiasrausch/tenX.git`
+Download the source code:
+
+`git clone https://github.com/tobiasrausch/tenX.git`
 
 `cd tenX/`
+
+Add the dependencies (Htslib, Boost, and Delly):
+
+`git submodule init`
+
+`git submodule update`
+
+Add the Boost sub-libraries:
+
+`cd src/modular-boost`
+
+`git submodule init`
+
+`git submodule update`
 
 `make all`
 
