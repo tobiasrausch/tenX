@@ -17,6 +17,8 @@ if args.tenxTable:
         reader = csv.DictReader(csvfile, delimiter='\t')
         for row in reader:
             if ('size' not in row.keys()) or (int(row['size']) > args.minsize):
+                if row['calledgenotype'] == 'None':
+                    row['calledgenotype'] = -1
                 geno[int(row['genotype']) + 1, int(row['calledgenotype']) + 1] += 1
 
 # Compute genotype concordances

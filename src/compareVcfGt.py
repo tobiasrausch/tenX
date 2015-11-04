@@ -65,5 +65,5 @@ if args.sample in sampleSet:
                     for cStart, cEnd in sv[record.CHROM].overlap((record.POS, svEnd)):
                         cSvID, cHap, cGT = sv[record.CHROM][(cStart, cEnd)]
                         if (abs(record.POS - cStart)<25) and (abs(svEnd - cEnd)<25):
-                            print(record.CHROM, cStart, cEnd, cSvID, (cEnd - cStart), call['GT'], call.gt_type, cHap, cGT, sep="\t")
+                            print(record.CHROM, cStart, cEnd, cSvID, (cEnd - cStart), cHap, cGT, call['GT'], call.gt_type, sep="\t")
                             break
