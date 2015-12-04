@@ -212,7 +212,7 @@ int main(int argc, char **argv) {
 	TChrPairLinks::iterator itChrLinks = chrLinks.find(cP);
 	if (itChrLinks == chrLinks.end()) itChrLinks = chrLinks.insert(std::make_pair(cP, 0)).first;
 	if (c.stat == 0) itChrLinks->second += 1;
-	else if (c.stat == 1) itChrLinks->second += itCVIt->second;
+	else if (c.stat == 1) itChrLinks->second += std::min(itCVIt->second, itCVItNext->second);
       }
     }
   }
