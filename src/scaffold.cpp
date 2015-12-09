@@ -36,6 +36,9 @@ Contact: Tobias Rausch (rausch@embl.de)
 #include <math.h> 
 #include <stdio.h>
 
+
+#define BARCODE_LENGTH 14
+
 struct Config {
   unsigned short minMapQual;
   uint32_t contiglen;
@@ -63,6 +66,19 @@ _encodeBarcode(std::string const& bar) {
   TCount::const_iterator itEnd = nucl.end();
   for(;itC != itEnd; ++itC, ++pos) hash += (uint32_t) (*itC * std::pow(4, pos));
   return hash;
+}
+
+inline std::string
+_decodeBarcode(uint32_t hash) {
+  std::string seq;
+  for (std::size_t i = 0; i < BARCODE_LENGTH; ++i) {
+    if (hash % 4 == 0) seq += 'A';
+    else if (hash % 4 == 1) seq += 'C';
+    else if (hash % 4 == 2) seq += 'G';
+    else if (hash % 4 == 3) seq += 'T';
+    hash /= 4;
+  }
+  return seq;
 }
 
 inline int32_t halfAlignmentLength(bam1_t* rec) {
@@ -200,7 +216,7 @@ int main(int argc, char **argv) {
     TBarcodeGenome::const_iterator itBG = barGenome.begin();
     TBarcodeGenome::const_iterator itBGEnd = barGenome.end();
     for(;itBG != itBGEnd; ++itBG) {
-      std::cerr << itBG->first << "\t" << itBG->second.size() << std::endl;
+      std::cerr << _decodeBarcode(itBG->first) << "\t" << itBG->second.size() << std::endl;
     }
   }
 
