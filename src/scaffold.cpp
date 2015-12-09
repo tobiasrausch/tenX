@@ -195,6 +195,15 @@ int main(int argc, char **argv) {
   spanBar.clear();
   barChrCount.clear();
 
+  // Output barcode table
+  if (true) {
+    TBarcodeGenome::const_iterator itBG = barGenome.begin();
+    TBarcodeGenome::const_iterator itBGEnd = barGenome.end();
+    for(;itBG != itBGEnd; ++itBG) {
+      std::cerr << itBG->first << "\t" << itBG->second.size() << std::endl;
+    }
+  }
+
   // Summarize chromosomal links
   typedef std::pair<TChr, TChr> TChrPair;
   typedef boost::unordered_map<TChrPair, uint32_t> TChrPairLinks;
