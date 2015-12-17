@@ -85,6 +85,23 @@ _decodeBarcode(uint32_t hash) {
   return seq;
 }
 
+template<typename TIterator, typename TValue>
+inline void
+_getMedian(TIterator begin, TIterator end, TValue& median) {
+  std::nth_element(begin, begin + (end - begin) / 2, end);
+  median = *(begin + (end - begin) / 2);
+}
+
+template<typename TIterator, typename TValue>
+inline void
+_getMAD(TIterator begin, TIterator end, TValue median, TValue& mad) {
+  std::vector<TValue> absDev;
+  for(;begin<end;++begin)
+    absDev.push_back(std::abs((TValue)*begin - median));
+  _getMedian(absDev.begin(), absDev.end(), mad);
+}
+
+
 inline int32_t halfAlignmentLength(bam1_t* rec) {
   uint32_t* cigar = bam_get_cigar(rec);
   unsigned int alen = 0;
@@ -100,12 +117,12 @@ int main(int argc, char **argv) {
   boost::program_options::options_description generic("Generic options");
   generic.add_options()
     ("help,?", "show help message")
-    ("contiglen,c", boost::program_options::value<uint32_t>(&c.contiglen)->default_value(500), "min. contig length")
+    ("contiglen,c", boost::program_options::value<uint32_t>(&c.contiglen)->default_value(1000), "min. contig length")
     ("map-qual,q", boost::program_options::value<unsigned short>(&c.minMapQual)->default_value(1), "min. mapping quality")
-    ("window,w", boost::program_options::value<uint32_t>(&c.window)->default_value(75000), "max. contig start/end search window (molecule length)")
+    ("window,w", boost::program_options::value<uint32_t>(&c.window)->default_value(25000), "max. contig start/end search window (molecule length)")
     ("linkedreads,l", boost::program_options::value<uint32_t>(&c.linkedreads)->default_value(3), "min. linked reads per chr")
     ("minsupport,m", boost::program_options::value<uint32_t>(&c.minsupport)->default_value(5), "min. scaffold support")
-    ("barcodetable,b", boost::program_options::value<boost::filesystem::path>(&c.barcodeTable), "output barcode,#contig count table")
+    ("barcodetable,b", boost::program_options::value<boost::filesystem::path>(&c.barcodeTable), "output barcode,#contigs,#reads count table")
     ("stat,s", boost::program_options::value<uint32_t>(&c.stat)->default_value(0), "0: binary link statistic, 1: sum of shared barcodes")
     ;
 
@@ -221,24 +238,36 @@ int main(int argc, char **argv) {
   spanBar.clear();
   barChrCount.clear();
 
-  // Estimate barcode,#contig distribution and remove highly abundant barcodes
+  // Estimate barcode,#contigs,#reads distributions and remove highly abundant barcodes and floating oligos (<50 reads)
   std::vector<std::size_t> barNumContigs;
-  for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) barNumContigs.push_back(itBG->second.size());
-  std::nth_element(barNumContigs.begin(), barNumContigs.begin() + (barNumContigs.end() - barNumContigs.begin()) / 2, barNumContigs.end());
-  std::size_t med = *(barNumContigs.begin() + (barNumContigs.end() - barNumContigs.begin()) / 2);
-  std::vector<std::size_t> absDev;
-  for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) absDev.push_back(std::abs((int) itBG->second.size() - (int) med));
-  std::nth_element(absDev.begin(), absDev.begin() + (absDev.end() - absDev.begin()) / 2, absDev.end());
-  std::size_t barContigCutoff = *(absDev.begin() + (absDev.end() - absDev.begin()) / 2);
-  barContigCutoff *= 5;  // Use median + 5 * median_abs_deviation as cutoff
-  barContigCutoff += med;
+  std::vector<std::size_t> barNumReads;
+  for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) {
+    barNumContigs.push_back(itBG->second.size());
+    uint32_t readsPerBarcode = 0;
+    for(TChrCountVec::const_iterator itChrCount = itBG->second.begin(); itChrCount!=itBG->second.end(); ++itChrCount) readsPerBarcode += itChrCount->second;
+    barNumReads.push_back(readsPerBarcode);
+  }
+  int32_t contigMedian = 0;
+  int32_t contigMad = 0;
+  _getMedian(barNumContigs.begin(), barNumContigs.end(), contigMedian);
+  _getMAD(barNumContigs.begin(), barNumContigs.end(), contigMedian, contigMad);
+  uint32_t barContigCutoff = (uint32_t) (contigMedian + 5 * contigMad);
+  int32_t readMedian = 0;
+  int32_t readMad = 0;
+  _getMedian(barNumReads.begin(), barNumReads.end(), readMedian);
+  _getMAD(barNumReads.begin(), barNumReads.end(), readMedian, readMad);
+  uint32_t barReadCutoff = (uint32_t) (readMedian + 5 * readMad);
   barNumContigs.clear();
-  absDev.clear();
+  barNumReads.clear();
 
   // Output barcode table
   if (c.outbar) {
     std::ofstream ofile(c.barcodeTable.string().c_str());
-    for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) ofile << _decodeBarcode(itBG->first) << "\t" << itBG->second.size() << std::endl;
+    for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) {
+      uint32_t readsPerBarcode = 0;
+      for(TChrCountVec::const_iterator itChrCount = itBG->second.begin(); itChrCount!=itBG->second.end(); ++itChrCount) readsPerBarcode += itChrCount->second;
+      ofile << _decodeBarcode(itBG->first) << "\t" << itBG->second.size() << "\t" << readsPerBarcode << std::endl;
+    }
     ofile.close();
   }
 
@@ -248,8 +277,10 @@ int main(int argc, char **argv) {
   TChrPairLinks chrLinks;
   TBarcodeGenome::const_iterator itBG = barGenome.begin();
   TBarcodeGenome::const_iterator itBGEnd = barGenome.end();
-  if (itBG->second.size() <= barContigCutoff) {
-    for(;itBG != itBGEnd; ++itBG) {
+  for(;itBG != itBGEnd; ++itBG) {
+    uint32_t readsPerBarcode = 0;
+    for(TChrCountVec::const_iterator itChrCount = itBG->second.begin(); itChrCount!=itBG->second.end(); ++itChrCount) readsPerBarcode += itChrCount->second;
+    if ((itBG->second.size() <= barContigCutoff) && (readsPerBarcode<=barReadCutoff) && (readsPerBarcode>50)) {
       TChrCountVec::const_iterator itCVIt = itBG->second.begin();
       TChrCountVec::const_iterator itCVItEnd = itBG->second.end();
       for(;itCVIt != itCVItEnd; ++itCVIt) {
