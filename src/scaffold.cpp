@@ -267,24 +267,92 @@ int main(int argc, char **argv) {
   }
   barGenome.clear();
   
-  // Output connections
+  // Compute connected components
+  typedef std::vector<uint32_t> TComponent;
+  TComponent comp;
+  comp.resize(hdr->n_targets + 1, 0);
+  uint32_t numComp = 0;
   TChrPairLinks::iterator chrIt = chrLinks.begin();
   TChrPairLinks::iterator chrItEnd = chrLinks.end();
   for(;chrIt != chrItEnd; ++chrIt) {
     if (chrIt->second >= c.minsupport) {
-      std::string chr1End;
-      if (chrIt->first.first < 0) chr1End = "/L";
-      else chr1End = "/R";
-      std::string chr2End;
-      if (chrIt->first.second < 0) chr2End = "/L";
-      else chr2End = "/R";
-      std::string chr1Name = hdr->target_name[std::abs(chrIt->first.first) - 1];
-      chr1Name = chr1Name.append(chr1End);
-      std::string chr2Name = hdr->target_name[std::abs(chrIt->first.second) - 1];
-      chr2Name = chr2Name.append(chr2End);
-      std::cout << chr1Name << ',' << chr2Name << '\t' << chrIt->second << std::endl;
+      TChr chr1 = std::abs(chrIt->first.first);
+      TChr chr2 = std::abs(chrIt->first.second);
+      if (chr1 != chr2) {
+	uint32_t compIndex = 0;
+	if (!comp[chr1]) {
+	  if (!comp[chr2]) {
+	    // Both vertices have no component yet
+	    compIndex = ++numComp;
+	    comp[chr1] = compIndex;
+	    comp[chr2] = compIndex;
+	  } else {
+	    compIndex = comp[chr2];
+	    comp[chr1] = compIndex;
+	  }
+	} else {
+	  if (!comp[chr2]) {
+	    compIndex = comp[chr1];
+	    comp[chr2] = compIndex;
+	  } else {
+	    // Both vertices already have a component ID
+	    if (comp[chr1] == comp[chr2]) {
+	      compIndex = comp[chr1];
+	    } else {
+	      // Merge components
+	      compIndex = comp[chr1];
+	      uint32_t otherIndex = comp[chr2];
+	      if (otherIndex < compIndex) {
+		compIndex = comp[chr2];
+		otherIndex = comp[chr1];
+	      }
+	      // Re-label other index
+	      for(std::size_t i = 0; i <= comp.size(); ++i) {
+		if (otherIndex == comp[i]) comp[i] = compIndex;
+	      }
+	    }
+	  }
+	}
+      }
+      //std::string chr1End;
+      //if (chrIt->first.first < 0) chr1End = "/L";
+      //else chr1End = "/R";
+      //std::string chr2End;
+      //if (chrIt->first.second < 0) chr2End = "/L";
+      //else chr2End = "/R";
+      //std::string chr1Name = hdr->target_name[std::abs(chrIt->first.first) - 1];
+      //chr1Name = chr1Name.append(chr1End);
+      //std::string chr2Name = hdr->target_name[std::abs(chrIt->first.second) - 1];
+      //chr2Name = chr2Name.append(chr2End);
+      //std::cout << chr1Name << ',' << chr2Name << '\t' << chrIt->second << std::endl;
     }
   }
+
+  // Summarize connected components
+  typedef std::pair<uint32_t, TChr> TCompChrPair;
+  typedef std::vector<TCompChrPair> TCompChr;
+  TCompChr compChr;
+  for(std::size_t i = 0; i < comp.size(); ++i)
+    if (comp[i]>0) compChr.push_back(std::make_pair(comp[i], i));
+  comp.clear();
+
+  // Sort by component
+  std::sort(compChr.begin(), compChr.end());
+
+  // Output connected components:
+  uint32_t lastCompID = 0;
+  TCompChr::const_iterator itConnChr = compChr.begin();
+  TCompChr::const_iterator itConnChrEnd = compChr.end();
+  for(;itConnChr != itConnChrEnd; ++itConnChr) {
+    if (itConnChr->first != lastCompID) {
+      if (lastCompID) std::cout << std::endl;
+      std::cout << "Scaffold" << itConnChr->first << ": " << hdr->target_name[itConnChr->second - 1];
+      lastCompID = itConnChr->first;
+    } else {
+      std::cout << "," << hdr->target_name[itConnChr->second - 1];
+    }
+  }
+  std::cout << std::endl;
   
   // Close bam
   bam_hdr_destroy(hdr);
