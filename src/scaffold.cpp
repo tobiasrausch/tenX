@@ -31,6 +31,7 @@ Contact: Tobias Rausch (rausch@embl.de)
 #include <boost/filesystem.hpp>
 #include <iostream>
 #include <vector>
+#include <fstream>
 #include <htslib/vcf.h>
 #include <htslib/sam.h>
 #include <math.h> 
@@ -40,12 +41,15 @@ Contact: Tobias Rausch (rausch@embl.de)
 #define BARCODE_LENGTH 14
 
 struct Config {
+  bool outbar;
   unsigned short minMapQual;
   uint32_t contiglen;
-  uint32_t moleculelen;
+  uint32_t window;
   uint32_t linkedreads;
+  uint32_t minsupport;
   uint32_t stat;
   boost::filesystem::path bamfile;
+  boost::filesystem::path barcodeTable;
 };
 
 inline uint32_t 
@@ -98,8 +102,10 @@ int main(int argc, char **argv) {
     ("help,?", "show help message")
     ("contiglen,c", boost::program_options::value<uint32_t>(&c.contiglen)->default_value(500), "min. contig length")
     ("map-qual,q", boost::program_options::value<unsigned short>(&c.minMapQual)->default_value(1), "min. mapping quality")
-    ("moleculelen,m", boost::program_options::value<uint32_t>(&c.moleculelen)->default_value(75000), "max. molecule length")
+    ("window,w", boost::program_options::value<uint32_t>(&c.window)->default_value(75000), "max. contig start/end search window (molecule length)")
     ("linkedreads,l", boost::program_options::value<uint32_t>(&c.linkedreads)->default_value(3), "min. linked reads per chr")
+    ("minsupport,m", boost::program_options::value<uint32_t>(&c.minsupport)->default_value(5), "min. scaffold support")
+    ("barcodetable,b", boost::program_options::value<boost::filesystem::path>(&c.barcodeTable), "output barcode,#contig count table")
     ("stat,s", boost::program_options::value<uint32_t>(&c.stat)->default_value(0), "0: binary link statistic, 1: sum of shared barcodes")
     ;
 
@@ -127,6 +133,10 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  // Output barcode table
+  if (vm.count("barcodetable")) c.outbar = true;
+  else c.outbar = false;
+
   // Load bam file
   samFile* samfile = sam_open(c.bamfile.string().c_str(), "r");
   hts_idx_t* idx = sam_index_load(samfile, c.bamfile.string().c_str());
@@ -147,9 +157,9 @@ int main(int argc, char **argv) {
     int32_t midpoint = (int32_t) hdr->target_len[refIndex] / 2;
     for (int contigLoc = 0; contigLoc < 2; ++contigLoc) {
       int32_t regionStart = 0;
-      int32_t regionEnd = std::min(midpoint, (int32_t) c.moleculelen);
+      int32_t regionEnd = std::min(midpoint, (int32_t) c.window);
       if (contigLoc) {
-	regionStart = std::max(midpoint, (int32_t) hdr->target_len[refIndex] - (int32_t) c.moleculelen);
+	regionStart = std::max(midpoint, (int32_t) hdr->target_len[refIndex] - (int32_t) c.window);
 	regionEnd = hdr->target_len[refIndex];
       }
       hts_itr_t* iter = sam_itr_queryi(idx, refIndex, regionStart, regionEnd);
@@ -211,13 +221,25 @@ int main(int argc, char **argv) {
   spanBar.clear();
   barChrCount.clear();
 
+  // Estimate barcode,#contig distribution and remove highly abundant barcodes
+  std::vector<std::size_t> barNumContigs;
+  for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) barNumContigs.push_back(itBG->second.size());
+  std::nth_element(barNumContigs.begin(), barNumContigs.begin() + (barNumContigs.end() - barNumContigs.begin()) / 2, barNumContigs.end());
+  std::size_t med = *(barNumContigs.begin() + (barNumContigs.end() - barNumContigs.begin()) / 2);
+  std::vector<std::size_t> absDev;
+  for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) absDev.push_back(std::abs((int) itBG->second.size() - (int) med));
+  std::nth_element(absDev.begin(), absDev.begin() + (absDev.end() - absDev.begin()) / 2, absDev.end());
+  std::size_t barContigCutoff = *(absDev.begin() + (absDev.end() - absDev.begin()) / 2);
+  barContigCutoff *= 5;  // Use median + 5 * median_abs_deviation as cutoff
+  barContigCutoff += med;
+  barNumContigs.clear();
+  absDev.clear();
+
   // Output barcode table
-  if (true) {
-    TBarcodeGenome::const_iterator itBG = barGenome.begin();
-    TBarcodeGenome::const_iterator itBGEnd = barGenome.end();
-    for(;itBG != itBGEnd; ++itBG) {
-      std::cerr << _decodeBarcode(itBG->first) << "\t" << itBG->second.size() << std::endl;
-    }
+  if (c.outbar) {
+    std::ofstream ofile(c.barcodeTable.string().c_str());
+    for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) ofile << _decodeBarcode(itBG->first) << "\t" << itBG->second.size() << std::endl;
+    ofile.close();
   }
 
   // Summarize chromosomal links
@@ -226,18 +248,20 @@ int main(int argc, char **argv) {
   TChrPairLinks chrLinks;
   TBarcodeGenome::const_iterator itBG = barGenome.begin();
   TBarcodeGenome::const_iterator itBGEnd = barGenome.end();
-  for(;itBG != itBGEnd; ++itBG) {
-    TChrCountVec::const_iterator itCVIt = itBG->second.begin();
-    TChrCountVec::const_iterator itCVItEnd = itBG->second.end();
-    for(;itCVIt != itCVItEnd; ++itCVIt) {
-      TChrCountVec::const_iterator itCVItNext = itCVIt;
-      ++itCVItNext;
-      for(;itCVItNext != itCVItEnd; ++itCVItNext) {
-	TChrPair cP = std::make_pair(std::min(itCVIt->first, itCVItNext->first), std::max(itCVIt->first, itCVItNext->first));
-	TChrPairLinks::iterator itChrLinks = chrLinks.find(cP);
-	if (itChrLinks == chrLinks.end()) itChrLinks = chrLinks.insert(std::make_pair(cP, 0)).first;
-	if (c.stat == 0) itChrLinks->second += 1;
-	else if (c.stat == 1) itChrLinks->second += std::min(itCVIt->second, itCVItNext->second);
+  if (itBG->second.size() <= barContigCutoff) {
+    for(;itBG != itBGEnd; ++itBG) {
+      TChrCountVec::const_iterator itCVIt = itBG->second.begin();
+      TChrCountVec::const_iterator itCVItEnd = itBG->second.end();
+      for(;itCVIt != itCVItEnd; ++itCVIt) {
+	TChrCountVec::const_iterator itCVItNext = itCVIt;
+	++itCVItNext;
+	for(;itCVItNext != itCVItEnd; ++itCVItNext) {
+	  TChrPair cP = std::make_pair(std::min(itCVIt->first, itCVItNext->first), std::max(itCVIt->first, itCVItNext->first));
+	  TChrPairLinks::iterator itChrLinks = chrLinks.find(cP);
+	  if (itChrLinks == chrLinks.end()) itChrLinks = chrLinks.insert(std::make_pair(cP, 0)).first;
+	  if (c.stat == 0) itChrLinks->second += 1;
+	  else if (c.stat == 1) itChrLinks->second += std::min(itCVIt->second, itCVItNext->second);
+	}
       }
     }
   }
@@ -247,17 +271,19 @@ int main(int argc, char **argv) {
   TChrPairLinks::iterator chrIt = chrLinks.begin();
   TChrPairLinks::iterator chrItEnd = chrLinks.end();
   for(;chrIt != chrItEnd; ++chrIt) {
-    std::string chr1End;
-    if (chrIt->first.first < 0) chr1End = "/L";
-    else chr1End = "/R";
-    std::string chr2End;
-    if (chrIt->first.second < 0) chr2End = "/L";
-    else chr2End = "/R";
-    std::string chr1Name = hdr->target_name[std::abs(chrIt->first.first) - 1];
-    chr1Name = chr1Name.append(chr1End);
-    std::string chr2Name = hdr->target_name[std::abs(chrIt->first.second) - 1];
-    chr2Name = chr2Name.append(chr2End);
-    std::cout << chr1Name << ',' << chr2Name << '\t' << chrIt->second << std::endl;
+    if (chrIt->second >= c.minsupport) {
+      std::string chr1End;
+      if (chrIt->first.first < 0) chr1End = "/L";
+      else chr1End = "/R";
+      std::string chr2End;
+      if (chrIt->first.second < 0) chr2End = "/L";
+      else chr2End = "/R";
+      std::string chr1Name = hdr->target_name[std::abs(chrIt->first.first) - 1];
+      chr1Name = chr1Name.append(chr1End);
+      std::string chr2Name = hdr->target_name[std::abs(chrIt->first.second) - 1];
+      chr2Name = chr2Name.append(chr2End);
+      std::cout << chr1Name << ',' << chr2Name << '\t' << chrIt->second << std::endl;
+    }
   }
   
   // Close bam
