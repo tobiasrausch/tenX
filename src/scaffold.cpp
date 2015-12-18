@@ -1,6 +1,6 @@
 /*
 ============================================================================
-10X Deletion Genotyper
+10X Scaffolder
 ============================================================================
 Copyright (C) 2015 Tobias Rausch
 
@@ -51,6 +51,15 @@ struct Config {
   boost::filesystem::path bamfile;
   boost::filesystem::path barcodeTable;
 };
+
+template<typename TPair>
+inline std::size_t hashChrPair(TPair const& p) {
+  std::size_t seed = 0;
+  boost::hash_combine(seed, p.first);
+  boost::hash_combine(seed, p.second);
+  return seed;
+}
+
 
 inline uint32_t 
 _encodeBarcode(std::string const& bar) {
@@ -196,19 +205,18 @@ int main(int argc, char **argv) {
 	  if (rec->core.pos + halfAlignmentLength(rec) < midpoint) chrId = -1 * chrId;
 	  
 	  // Is this a spanning barcode?
-	  TSpanningBarcode::iterator sBIt = spanBar.find(hash);
-	  if (sBIt == spanBar.end()) {
-	    spanBar.insert(std::make_pair(hash, false)).first;
-	    lastBarChr.insert(std::make_pair(hash, rec->core.tid));
-	  } else if (!sBIt->second) {
-	    if (rec->core.tid != lastBarChr.find(hash)->second) sBIt->second = true;
+	  if (spanBar.find(hash) == spanBar.end()) {
+	    spanBar[hash] = false;
+	    lastBarChr[hash] = rec->core.tid;
+	  } else {
+	    if ((!spanBar[hash]) && (rec->core.tid != lastBarChr[hash])) spanBar[hash] = true;
 	  }
 	  
 	  // Insert the barcode-chromosome count
 	  TBarcodeChr bc = std::make_pair(hash, chrId);
 	  TBarcodeChrCount::iterator itBC = barChrCount.find(bc);
 	  if (itBC != barChrCount.end()) itBC->second += 1;
-	  else barChrCount.insert(std::make_pair(bc, 1));
+	  else barChrCount[bc] = 1;
 	}
       }
       bam_destroy1(rec);
@@ -217,15 +225,12 @@ int main(int argc, char **argv) {
   }
   lastBarChr.clear();
 
-
   // Summarize chromosome counts per barcode (that do span multiple chromosomes)
   typedef std::pair<TChr, uint32_t> TChrCount;
   typedef std::vector<TChrCount> TChrCountVec;
   typedef boost::unordered_map<TBarcode, TChrCountVec> TBarcodeGenome;
   TBarcodeGenome barGenome;
-  TBarcodeChrCount::const_iterator itBC = barChrCount.begin();
-  TBarcodeChrCount::const_iterator itBCEnd = barChrCount.end();
-  for(;itBC != itBCEnd; ++itBC) {
+  for(TBarcodeChrCount::const_iterator itBC = barChrCount.begin();itBC != barChrCount.end(); ++itBC) {
     // Spanning barcode ?
     if (spanBar.find(itBC->first.first)->second) {
       if (itBC->second >= c.linkedreads) {
@@ -271,33 +276,60 @@ int main(int argc, char **argv) {
     ofile.close();
   }
 
+  // Chromosomal links pre-filter
+  typedef boost::unordered_map<std::size_t, uint8_t> TChrPairFilter;
+  TChrPairFilter chrPairFilter;
+  typedef boost::unordered_map<TBarcode, bool> TValidBarcode;
+  TValidBarcode validBarcode;
+  for(TBarcodeGenome::const_iterator itBG = barGenome.begin(); itBG != barGenome.end(); ++itBG) {
+    uint32_t readsPerBarcode = 0;
+    for(TChrCountVec::const_iterator itChrCount = itBG->second.begin(); itChrCount!=itBG->second.end(); ++itChrCount) readsPerBarcode += itChrCount->second;
+    if ((itBG->second.size() <= barContigCutoff) && (readsPerBarcode<=barReadCutoff) && (readsPerBarcode>50)) validBarcode[itBG->first] = true;
+    else validBarcode[itBG->first] = false;
+    if (validBarcode[itBG->first]) {
+      for(TChrCountVec::const_iterator itCVIt = itBG->second.begin(); itCVIt != itBG->second.end(); ++itCVIt) {
+	TChrCountVec::const_iterator itCVItNext = itCVIt;
+	++itCVItNext;
+	for(;itCVItNext != itBG->second.end(); ++itCVItNext) {
+	  std::size_t pairHash = hashChrPair(std::make_pair(std::min(itCVIt->first, itCVItNext->first), std::max(itCVIt->first, itCVItNext->first)));
+	  if (chrPairFilter.find(pairHash) == chrPairFilter.end()) chrPairFilter[pairHash] = 0;
+	  if (c.stat == 0) {
+	    if (chrPairFilter[pairHash]<255) chrPairFilter[pairHash] += 1;
+	  } else if (c.stat == 1) {
+	    uint32_t incr = std::min(itCVIt->second, itCVItNext->second);
+	    if ((chrPairFilter[pairHash] + incr) < 255) chrPairFilter[pairHash] += incr;
+	  }
+	}
+      }
+    }
+  }
+
   // Summarize chromosomal links
   typedef std::pair<TChr, TChr> TChrPair;
   typedef boost::unordered_map<TChrPair, uint32_t> TChrPairLinks;
   TChrPairLinks chrLinks;
-  TBarcodeGenome::const_iterator itBG = barGenome.begin();
-  TBarcodeGenome::const_iterator itBGEnd = barGenome.end();
-  for(;itBG != itBGEnd; ++itBG) {
-    uint32_t readsPerBarcode = 0;
-    for(TChrCountVec::const_iterator itChrCount = itBG->second.begin(); itChrCount!=itBG->second.end(); ++itChrCount) readsPerBarcode += itChrCount->second;
-    if ((itBG->second.size() <= barContigCutoff) && (readsPerBarcode<=barReadCutoff) && (readsPerBarcode>50)) {
-      TChrCountVec::const_iterator itCVIt = itBG->second.begin();
-      TChrCountVec::const_iterator itCVItEnd = itBG->second.end();
-      for(;itCVIt != itCVItEnd; ++itCVIt) {
+  for(TBarcodeGenome::const_iterator itBG = barGenome.begin();itBG != barGenome.end(); ++itBG) {
+    if (validBarcode[itBG->first]) {
+      for(TChrCountVec::const_iterator itCVIt = itBG->second.begin(); itCVIt != itBG->second.end(); ++itCVIt) {
 	TChrCountVec::const_iterator itCVItNext = itCVIt;
 	++itCVItNext;
-	for(;itCVItNext != itCVItEnd; ++itCVItNext) {
+	for(;itCVItNext != itBG->second.end(); ++itCVItNext) {
 	  TChrPair cP = std::make_pair(std::min(itCVIt->first, itCVItNext->first), std::max(itCVIt->first, itCVItNext->first));
-	  TChrPairLinks::iterator itChrLinks = chrLinks.find(cP);
-	  if (itChrLinks == chrLinks.end()) itChrLinks = chrLinks.insert(std::make_pair(cP, 0)).first;
-	  if (c.stat == 0) itChrLinks->second += 1;
-	  else if (c.stat == 1) itChrLinks->second += std::min(itCVIt->second, itCVItNext->second);
+	  std::size_t pairHash = hashChrPair(cP);
+	  if (chrPairFilter[pairHash] >= c.minsupport) {
+	    TChrPairLinks::iterator itChrLinks = chrLinks.find(cP);
+	    if (itChrLinks == chrLinks.end()) itChrLinks = chrLinks.insert(std::make_pair(cP, 0)).first;
+	    if (c.stat == 0) itChrLinks->second += 1;
+	    else if (c.stat == 1) itChrLinks->second += std::min(itCVIt->second, itCVItNext->second);
+	  }
 	}
       }
     }
   }
   barGenome.clear();
-  
+  chrPairFilter.clear();
+  validBarcode.clear();
+
   // Compute connected components
   typedef std::vector<uint32_t> TComponent;
   TComponent comp;
