@@ -63,7 +63,6 @@ struct Config {
 };
 
 struct VertexProp {
-  std::string name;
   int32_t chr;
 };
 
@@ -133,6 +132,52 @@ inline int32_t halfAlignmentLength(bam1_t* rec) {
   return (alen / 2);
 }
 
+
+template<typename TConfig, typename TBarcodeChrCount>
+inline void _countContigHits(TConfig const& c, samFile* samfile, hts_idx_t* idx, bam_hdr_t* hdr, TBarcodeChrCount& barChrCount) {
+  typedef typename TBarcodeChrCount::key_type TBarcodeChr;
+
+  // Parse bam (contig by contig)
+  for (int refIndex = 0; refIndex<hdr->n_targets; ++refIndex) {
+    if (hdr->target_len[refIndex] < c.contiglen) continue;
+    int32_t midpoint = (int32_t) hdr->target_len[refIndex] / 2;
+    for (int contigLoc = 0; contigLoc < 2; ++contigLoc) {
+      int32_t regionStart = 0;
+      int32_t regionEnd = std::min(midpoint, (int32_t) c.window);
+      if (contigLoc) {
+	regionStart = std::max(midpoint, (int32_t) hdr->target_len[refIndex] - (int32_t) c.window);
+	regionEnd = hdr->target_len[refIndex];
+      }
+      hts_itr_t* iter = sam_itr_queryi(idx, refIndex, regionStart, regionEnd);
+      bam1_t* rec = bam_init1();
+      while (sam_itr_next(samfile, iter, rec) >= 0) {
+	if (rec->core.flag & (BAM_FSECONDARY | BAM_FQCFAIL | BAM_FDUP | BAM_FSUPPLEMENTARY | BAM_FUNMAP)) continue;
+	if ((rec->core.qual < c.minMapQual) || (rec->core.tid<0)) continue;
+      
+	uint8_t *bxptr = bam_aux_get(rec, "BX");
+	if (bxptr) {
+	  char* bx = (char*) (bxptr + 1);
+	  // Get barcode id
+	  uint32_t hash = _encodeBarcode(boost::to_upper_copy(std::string(bx)));
+	  
+	  // Get chromosome id
+	  int32_t chrId = rec->core.tid + 1;
+	  if (rec->core.pos + halfAlignmentLength(rec) < midpoint) chrId = -1 * chrId;
+	  
+	  // Insert the barcode-chromosome count
+	  TBarcodeChr bc = std::make_pair(hash, chrId);
+	  typename TBarcodeChrCount::iterator itBC = barChrCount.find(bc);
+	  if (itBC != barChrCount.end()) itBC->second += 1;
+	  else barChrCount[bc] = 1;
+	}
+      }
+      bam_destroy1(rec);
+      hts_itr_destroy(iter);
+    }
+  }
+}
+
+
 int main(int argc, char **argv) {
   Config c;
 
@@ -187,49 +232,13 @@ int main(int argc, char **argv) {
   hts_idx_t* idx = sam_index_load(samfile, c.bamfile.string().c_str());
   bam_hdr_t* hdr = sam_hdr_read(samfile);
 
-  // Parse bam (chr by chr)
+  // Count barcodes per contig/region
   typedef uint32_t TBarcode;
   typedef int32_t TChr;
   typedef std::pair<TBarcode, TChr> TBarcodeChr;
   typedef boost::unordered_map<TBarcodeChr, uint32_t> TBarcodeChrCount;
   TBarcodeChrCount barChrCount;
-  for (int refIndex = 0; refIndex<hdr->n_targets; ++refIndex) {
-    if (hdr->target_len[refIndex] < c.contiglen) continue;
-    int32_t midpoint = (int32_t) hdr->target_len[refIndex] / 2;
-    for (int contigLoc = 0; contigLoc < 2; ++contigLoc) {
-      int32_t regionStart = 0;
-      int32_t regionEnd = std::min(midpoint, (int32_t) c.window);
-      if (contigLoc) {
-	regionStart = std::max(midpoint, (int32_t) hdr->target_len[refIndex] - (int32_t) c.window);
-	regionEnd = hdr->target_len[refIndex];
-      }
-      hts_itr_t* iter = sam_itr_queryi(idx, refIndex, regionStart, regionEnd);
-      bam1_t* rec = bam_init1();
-      while (sam_itr_next(samfile, iter, rec) >= 0) {
-	if (rec->core.flag & (BAM_FSECONDARY | BAM_FQCFAIL | BAM_FDUP | BAM_FSUPPLEMENTARY | BAM_FUNMAP)) continue;
-	if ((rec->core.qual < c.minMapQual) || (rec->core.tid<0)) continue;
-      
-	uint8_t *bxptr = bam_aux_get(rec, "BX");
-	if (bxptr) {
-	  char* bx = (char*) (bxptr + 1);
-	  // Get barcode id
-	  uint32_t hash = _encodeBarcode(boost::to_upper_copy(std::string(bx)));
-	  
-	  // Get chromosome id
-	  int32_t chrId = rec->core.tid + 1;
-	  if (rec->core.pos + halfAlignmentLength(rec) < midpoint) chrId = -1 * chrId;
-	  
-	  // Insert the barcode-chromosome count
-	  TBarcodeChr bc = std::make_pair(hash, chrId);
-	  TBarcodeChrCount::iterator itBC = barChrCount.find(bc);
-	  if (itBC != barChrCount.end()) itBC->second += 1;
-	  else barChrCount[bc] = 1;
-	}
-      }
-      bam_destroy1(rec);
-      hts_itr_destroy(iter);
-    }
-  }
+  _countContigHits(c, samfile, idx, hdr, barChrCount);
 
   // Count barcodes
   typedef boost::unordered_map<TBarcode, std::size_t> TBarcodeIndex;
@@ -474,10 +483,6 @@ int main(int argc, char **argv) {
 		c1u = add_vertex(g);
 		pos->second = c1u;
 		g[c1u].chr = chr1;
-		std::string chrName = hdr->target_name[std::abs(chr1) - 1];
-		if (chr1 < 0) chrName.append("/L");
-		else chrName.append("/R");
-		g[c1u].name = chrName;
 	      } else {
 		c1u = pos->second;
 	      }
@@ -489,10 +494,6 @@ int main(int argc, char **argv) {
 		c1v = add_vertex(g);
 		pos->second = c1v;
 		g[c1v].chr = -1 * chr1;
-		std::string chrName = hdr->target_name[std::abs(chr1) - 1];
-		if (-1 * chr1 < 0) chrName.append("/L");
-		else chrName.append("/R");
-		g[c1v].name = chrName;
 	      } else {
 		c1v = pos->second;
 	      }
@@ -512,10 +513,6 @@ int main(int argc, char **argv) {
 		c2u = add_vertex(g);
 		pos->second = c2u;
 		g[c2u].chr = chr2;
-		std::string chrName = hdr->target_name[std::abs(chr2) - 1];
-		if (chr2 < 0) chrName.append("/L");
-		else chrName.append("/R");
-		g[c2u].name = chrName;
 	      } else {
 		c2u = pos->second;
 	      }
@@ -526,11 +523,7 @@ int main(int argc, char **argv) {
 	      if (inserted) {
 		c2v = add_vertex(g);
 		pos->second = c2v;
-		g[c2v].chr = chr2;
-		std::string chrName = hdr->target_name[std::abs(chr2) - 1];
-		if (-1 * chr2 < 0) chrName.append("/L");
-		else chrName.append("/R");
-		g[c2v].name = chrName;
+		g[c2v].chr = -1 * chr2;
 	      } else {
 		c2v = pos->second;
 	      }
@@ -575,7 +568,12 @@ int main(int argc, char **argv) {
       // ... or ...
       fout << "graph scaffold" << *ici << " {\n" << " rankdir=LR\n" << " edge[style=\"bold\"]\n" << " node[shape=\"box\"]\n";
       boost::graph_traits<Graph>::vertex_iterator viter, viter_end;
-      for (boost::tie(viter, viter_end) = vertices(g); viter != viter_end; ++viter) fout << *viter << "[color=\"black\", label=\"" << g[*viter].name << "\"];\n";
+      for (boost::tie(viter, viter_end) = vertices(g); viter != viter_end; ++viter) {
+	std::string chrName = hdr->target_name[std::abs(g[*viter].chr) - 1];
+	if (g[*viter].chr < 0) chrName.append("/L");
+	else chrName.append("/R");
+	fout << *viter << "[color=\"black\", label=\"" << chrName << "\"];\n";
+      }
       boost::graph_traits<Graph>::edge_iterator eiter, eiter_end;
       for (boost::tie(eiter, eiter_end) = edges(g); eiter != eiter_end; ++eiter) {
 	fout << source(*eiter, g) << " -- " << target(*eiter, g);
