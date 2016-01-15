@@ -9,7 +9,7 @@ DELLY_ROOT ?= ${PWD}/src/delly/src/
 
 # Flags
 CXX=g++
-CXXFLAGS += -isystem ${SEQTK_ROOT} -isystem ${BOOST_ROOT} -isystem ${DELLY_ROOT} -pedantic -W -Wall -Wno-unknown-pragmas
+CXXFLAGS += -isystem ${SEQTK_ROOT} -isystem ${BOOST_ROOT} -isystem ${DELLY_ROOT} -pedantic -W -Wall -Wno-unknown-pragmas -D__STDC_LIMIT_MACROS -fno-strict-aliasing
 LDFLAGS += -L${SEQTK_ROOT} -L${BOOST_ROOT}/stage/lib -lboost_iostreams -lboost_filesystem -lboost_system -lboost_program_options -lboost_date_time
 
 # Additional flags for release/debug
@@ -24,7 +24,7 @@ else ifeq (${DEBUG}, 2)
 	CXXFLAGS += -g -O0 -fno-inline -DPROFILE
 	LDFLAGS += -lprofiler -ltcmalloc
 else
-	CXXFLAGS += -O9 -DNDEBUG
+	CXXFLAGS += -O3 -DNDEBUG
 endif
 
 # External sources
