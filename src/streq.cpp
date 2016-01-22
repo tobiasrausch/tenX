@@ -308,14 +308,7 @@ int main(int argc, char **argv) {
     ofile.close();
   }
 
-  // Parse intervals
-  typedef boost::icl::interval_set<uint32_t> TChrIntervals;
-  typedef typename TChrIntervals::interval_type TIVal;
-  typedef std::vector<TChrIntervals> TRegionsGenome;
-  TRegionsGenome regions;
-  regions.resize(hdr->n_targets);
-  
-  // Store interval names
+  // Store intervals
   typedef std::pair<uint32_t, uint32_t> TInterval;
   typedef std::map<TInterval, std::string> TIntervalMap;
   typedef std::vector<TIntervalMap> TGenomicIntervals;
@@ -339,7 +332,6 @@ int main(int argc, char **argv) {
 	    uint32_t end = boost::lexical_cast<int32_t>(*tokIter++);
 	    std::string intId = *tokIter++;
 	    genomicIntervals[tid].insert(std::make_pair(std::make_pair(start, end), intId));
-	    regions[tid].insert(TIVal::right_open(start, end));
 	  }
 	}
       }
@@ -348,7 +340,6 @@ int main(int argc, char **argv) {
   } else {
     for (int refIndex = 0; refIndex<hdr->n_targets; ++refIndex) {
       if (hdr->target_len[refIndex] < c.window) continue;
-      regions[refIndex].insert(TIVal::right_open(0, hdr->target_len[refIndex]));
       std::string intId(hdr->target_name[refIndex]);
       intId += ":" + boost::lexical_cast<std::string>(0) + "-" + boost::lexical_cast<std::string>(hdr->target_len[refIndex]);
       genomicIntervals[refIndex].insert(std::make_pair(std::make_pair(0, hdr->target_len[refIndex]), intId));
@@ -360,10 +351,10 @@ int main(int argc, char **argv) {
     std::ofstream ofile(c.watsonRatio.string().c_str());
     ofile << "chr\tstart\tend\twratio\tsupport\ttype\tid" << std::endl;
     for (int refIndex = 0; refIndex<hdr->n_targets; ++refIndex) {
-      for(TChrIntervals::const_iterator itR = regions[refIndex].begin(); itR != regions[refIndex].end(); ++itR) {
-	std::string intervalName = genomicIntervals[refIndex].find(std::make_pair(itR->lower(), itR->upper()))->second;
-	uint32_t intervalSize = itR->upper() - itR->lower();
-	uint32_t indS = (int) (itR->lower() / c.window);
+      for(TIntervalMap::const_iterator itR = genomicIntervals[refIndex].begin(); itR != genomicIntervals[refIndex].end(); ++itR) {
+	std::string intervalName = itR->second;
+	uint32_t intervalSize = itR->first.second - itR->first.first;
+	uint32_t indS = (int) (itR->first.first / c.window);
 	uint32_t bins = intervalSize / c.segment + 1;
 	for(std::size_t i = 0; i<3; ++i) {
 	  typedef std::vector<uint32_t> TCounter;
@@ -385,9 +376,9 @@ int main(int argc, char **argv) {
 	    itWindowsEnd = wcWindows[refIndex].end();
 	  }
 	  for(;itWindows != itWindowsEnd; ++itWindows) {
-	    if (itWindows->first * c.window >= itR->upper()) break;
-	    int32_t regionStart = std::max(itWindows->first * c.window, itR->lower());
-	    int32_t regionEnd = std::min((itWindows->first + 1) * c.window, itR->upper());
+	    if (itWindows->first * c.window >= itR->first.second) break;
+	    int32_t regionStart = std::max(itWindows->first * c.window, itR->first.first);
+	    int32_t regionEnd = std::min((itWindows->first + 1) * c.window, itR->first.second);
 	    hts_itr_t* iter = sam_itr_queryi(idx[itWindows->second], refIndex, regionStart, regionEnd);
 	    bam1_t* rec = bam_init1();
 	    while (sam_itr_next(samfile[itWindows->second], iter, rec) >= 0) {
@@ -395,8 +386,8 @@ int main(int argc, char **argv) {
 	      if ((rec->core.qual < c.minMapQual) || (rec->core.tid<0)) continue;
 	      
 	      int32_t pos = rec->core.pos + halfAlignmentLength(rec);
-	      if ((pos >= (int32_t) itR->lower()) && (pos < (int32_t) itR->upper())) {
-		uint32_t binInd = (uint32_t) ((pos - itR->lower()) / c.segment);
+	      if ((pos >= (int32_t) itR->first.first) && (pos < (int32_t) itR->first.second)) {
+		uint32_t binInd = (uint32_t) ((pos - itR->first.first) / c.segment);
 		if (rec->core.flag & BAM_FREAD1) 
 		  if (rec->core.flag & BAM_FREVERSE) ++crickCount[binInd];
 		  else ++watsonCount[binInd];
@@ -413,8 +404,8 @@ int main(int argc, char **argv) {
 	    uint32_t sup = *itWatson + *itCrick;
 	    if (sup > 0) {
 	      double wRatio = ((double) *itWatson / (double) (sup));
-	      int32_t regionStart = bin * c.segment + itR->lower();
-	      int32_t regionEnd = std::min((uint32_t) ((bin + 1) * c.segment + itR->lower()), itR->upper());
+	      int32_t regionStart = bin * c.segment + itR->first.first;
+	      int32_t regionEnd = std::min((uint32_t) ((bin + 1) * c.segment + itR->first.first), itR->first.second);
 	      ofile << hdr->target_name[refIndex] << '\t' << regionStart << '\t' << regionEnd << '\t' << wRatio << '\t' << sup << '\t';
 	      if (i == 0) ofile << "Watson" << '\t';
 	      else if (i == 1) ofile << "Crick" << '\t';
