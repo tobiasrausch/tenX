@@ -260,7 +260,7 @@ inline void _countRegionHits(TConfig const& c, samFile* samfile, hts_idx_t* idx,
 	    // Get chromosome id
 	    int32_t chrId = intervalindex + 1;
 	    if (rec->core.pos + halfAlignmentLength(rec) < midpoint) chrId = -1 * chrId;
-	  
+
 	    // Insert the barcode-chromosome count
 	    TBarcodeChr bc = std::make_pair(hash, chrId);
 	    typename TBarcodeChrCount::iterator itBC = barChrCount.find(bc);
