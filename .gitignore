@@ -2,3 +2,4 @@
 .boost
 src/genoDEL
 src/scaffold
+src/phaseBam
