@@ -5,11 +5,10 @@ STATIC ?= 0
 PWD = $(shell pwd)
 SEQTK_ROOT ?= ${PWD}/src/htslib/
 BOOST_ROOT ?= ${PWD}/src/modular-boost/
-DELLY_ROOT ?= ${PWD}/src/delly/src/
 
 # Flags
 CXX=g++
-CXXFLAGS += -isystem ${SEQTK_ROOT} -isystem ${BOOST_ROOT} -isystem ${DELLY_ROOT} -pedantic -W -Wall -Wno-unknown-pragmas -D__STDC_LIMIT_MACROS -fno-strict-aliasing
+CXXFLAGS += -isystem ${SEQTK_ROOT} -isystem ${BOOST_ROOT} -pedantic -W -Wall -Wno-unknown-pragmas -D__STDC_LIMIT_MACROS -fno-strict-aliasing
 LDFLAGS += -L${SEQTK_ROOT} -L${BOOST_ROOT}/stage/lib -lboost_iostreams -lboost_filesystem -lboost_system -lboost_program_options -lboost_date_time
 
 # Additional flags for release/debug
@@ -33,7 +32,7 @@ HTSLIBSOURCES = $(wildcard src/htslib/*.c) $(wildcard src/htslib/*.h)
 SVSOURCES = $(wildcard src/*.h) $(wildcard src/*.cpp)
 
 # Targets
-TARGETS = .htslib .boost src/genoDEL src/genoINS src/scaffold
+TARGETS = .htslib .boost src/genoDEL src/scaffold
 
 all:   	$(TARGETS)
 
@@ -44,9 +43,6 @@ all:   	$(TARGETS)
 	cd src/modular-boost && ./bootstrap.sh --prefix=${PWD}/src/modular-boost --without-icu --with-libraries=iostreams,filesystem,system,program_options,date_time && ./b2 && ./b2 headers && cd ../../ && touch .boost
 
 src/genoDEL: .htslib .boost $(SVSOURCES)
-	$(CXX) $(CXXFLAGS) $@.cpp -o $@ $(LDFLAGS)
-
-src/genoINS: .htslib .boost $(SVSOURCES)
 	$(CXX) $(CXXFLAGS) $@.cpp -o $@ $(LDFLAGS)
 
 src/scaffold: .htslib .boost $(SVSOURCES)

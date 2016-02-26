@@ -1,5 +1,4 @@
 .htslib
 .boost
 src/genoDEL
-src/genoINS
 src/scaffold
