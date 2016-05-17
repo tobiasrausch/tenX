@@ -172,21 +172,24 @@ inline void _countContigHits(TConfig const& c, samFile* samfile, hts_idx_t* idx,
 	if (rec->core.flag & (BAM_FSECONDARY | BAM_FQCFAIL | BAM_FDUP | BAM_FSUPPLEMENTARY | BAM_FUNMAP)) continue;
 	if ((rec->core.qual < c.minMapQual) || (rec->core.tid<0)) continue;
       
-	uint8_t *bxptr = bam_aux_get(rec, "BX");
-	if (bxptr) {
-	  char* bx = (char*) (bxptr + 1);
-	  // Get barcode id
-	  uint32_t hash = _encodeBarcode(boost::to_upper_copy(std::string(bx)));
-	  
-	  // Get chromosome id
-	  int32_t chrId = rec->core.tid + 1;
-	  if (rec->core.pos + halfAlignmentLength(rec) < midpoint) chrId = -1 * chrId;
-	  
-	  // Insert the barcode-chromosome count
-	  TBarcodeChr bc = std::make_pair(hash, chrId);
-	  typename TBarcodeChrCount::iterator itBC = barChrCount.find(bc);
-	  if (itBC != barChrCount.end()) itBC->second += 1;
-	  else barChrCount[bc] = 1;
+	uint8_t *miptr = bam_aux_get(rec, "MI");
+	if (miptr) {
+	  uint8_t *bxptr = bam_aux_get(rec, "BX");
+	  if (bxptr) {
+	    char* bx = (char*) (bxptr + 1);
+	    // Get barcode id
+	    uint32_t hash = _encodeBarcode(boost::to_upper_copy(std::string(bx)));
+	    
+	    // Get chromosome id
+	    int32_t chrId = rec->core.tid + 1;
+	    if (rec->core.pos + halfAlignmentLength(rec) < midpoint) chrId = -1 * chrId;
+	    
+	    // Insert the barcode-chromosome count
+	    TBarcodeChr bc = std::make_pair(hash, chrId);
+	    typename TBarcodeChrCount::iterator itBC = barChrCount.find(bc);
+	    if (itBC != barChrCount.end()) itBC->second += 1;
+	    else barChrCount[bc] = 1;
+	  }
 	}
       }
       bam_destroy1(rec);
@@ -632,14 +635,16 @@ int main(int argc, char **argv) {
 	      for(; ei!=ei_end; ++ei) {
 		if (target(*ei, g) == u) {
 		  foundEdge = true;
-		  weightMap[*ei] -= std::min(itCVIt->second, itCVItNext->second);
+		  //weightMap[*ei] -= std::min(itCVIt->second, itCVItNext->second);
+		  weightMap[*ei] -= 1;
 		  break;
 		}
 	      }
 	      if (!foundEdge) {
 		boost::graph_traits<Graph>::edge_descriptor e;
 		tie(e, inserted) = add_edge(v, u, g);
-		if (inserted) weightMap[e] = -1 * std::min(itCVIt->second, itCVItNext->second);
+		//if (inserted) weightMap[e] = -1 * std::min(itCVIt->second, itCVItNext->second);
+		if (inserted) weightMap[e] = -1;
 	      }
 	    }
 	  }
