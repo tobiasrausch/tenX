@@ -80,7 +80,7 @@ struct SInterval {
   uint32_t chr;
   uint32_t start;
   uint32_t end;
-  
+
   SInterval(uint32_t c, uint32_t s, uint32_t e) : chr(c), start(s), end(e) {}
 };
 
@@ -92,7 +92,7 @@ inline std::size_t hashChrPair(TPair const& p) {
   return seed;
 }
 
-inline uint32_t 
+inline uint32_t
 _encodeBarcode(std::string const& bar) {
   typedef std::vector<unsigned int> TCount;
   TCount nucl;
@@ -108,7 +108,7 @@ _encodeBarcode(std::string const& bar) {
   uint32_t hash = 0;
   TCount::const_iterator itC = nucl.begin();
   TCount::const_iterator itEnd = nucl.end();
-  for(;itC != itEnd; ++itC, ++pos) hash += (uint32_t) (*itC * std::pow(4, pos));
+  for(;itC != itEnd; ++itC, ++pos) hash += (uint32_t) (*itC * std::pow((double) 4, (int32_t) pos));
   return hash;
 }
 
@@ -171,7 +171,7 @@ inline void _countContigHits(TConfig const& c, samFile* samfile, hts_idx_t* idx,
       while (sam_itr_next(samfile, iter, rec) >= 0) {
 	if (rec->core.flag & (BAM_FSECONDARY | BAM_FQCFAIL | BAM_FDUP | BAM_FSUPPLEMENTARY | BAM_FUNMAP)) continue;
 	if ((rec->core.qual < c.minMapQual) || (rec->core.tid<0)) continue;
-      
+
 	uint8_t *miptr = bam_aux_get(rec, "MI");
 	if (miptr) {
 	  uint8_t *bxptr = bam_aux_get(rec, "BX");
@@ -179,11 +179,11 @@ inline void _countContigHits(TConfig const& c, samFile* samfile, hts_idx_t* idx,
 	    char* bx = (char*) (bxptr + 1);
 	    // Get barcode id
 	    uint32_t hash = _encodeBarcode(boost::to_upper_copy(std::string(bx)));
-	    
+
 	    // Get chromosome id
 	    int32_t chrId = rec->core.tid + 1;
 	    if (rec->core.pos + halfAlignmentLength(rec) < midpoint) chrId = -1 * chrId;
-	    
+
 	    // Insert the barcode-chromosome count
 	    TBarcodeChr bc = std::make_pair(hash, chrId);
 	    typename TBarcodeChrCount::iterator itBC = barChrCount.find(bc);
@@ -203,7 +203,7 @@ template<typename TConfig, typename TBarcodeChrCount, typename TIntervalList>
 inline void _countRegionHits(TConfig const& c, samFile* samfile, hts_idx_t* idx, bam_hdr_t* hdr, TBarcodeChrCount& barChrCount, TIntervalList& genomeIntervals) {
   typedef typename TBarcodeChrCount::key_type TBarcodeChr;
   typedef typename TIntervalList::value_type TSInterval;
-  
+
   // Parse intervals
   typedef boost::icl::interval_set<uint32_t> TChrIntervals;
   typedef typename TChrIntervals::interval_type TIVal;
@@ -225,7 +225,7 @@ inline void _countRegionHits(TConfig const& c, samFile* samfile, hts_idx_t* idx,
 	if (tid >= 0) {
 	  int32_t start = boost::lexical_cast<int32_t>(*tokIter++);
 	  int32_t end = boost::lexical_cast<int32_t>(*tokIter++);
-	  if ((end - start) < c.contiglen) continue;
+	  if ((end - start) < (int32_t) c.contiglen) continue;
 	  regions[tid].insert(TIVal::right_open(start, end));
 	}
       }
@@ -233,7 +233,7 @@ inline void _countRegionHits(TConfig const& c, samFile* samfile, hts_idx_t* idx,
     regionFile.close();
   }
 
-  
+
   // Parse bam (contig by contig)
   for (int refIndex = 0; refIndex<hdr->n_targets; ++refIndex) {
     for(TChrIntervals::const_iterator itR = regions[refIndex].begin(); itR != regions[refIndex].end(); ++itR) {
@@ -253,13 +253,13 @@ inline void _countRegionHits(TConfig const& c, samFile* samfile, hts_idx_t* idx,
 	while (sam_itr_next(samfile, iter, rec) >= 0) {
 	  if (rec->core.flag & (BAM_FSECONDARY | BAM_FQCFAIL | BAM_FDUP | BAM_FSUPPLEMENTARY | BAM_FUNMAP)) continue;
 	  if ((rec->core.qual < c.minMapQual) || (rec->core.tid<0)) continue;
-	  
+
 	  uint8_t *bxptr = bam_aux_get(rec, "BX");
 	  if (bxptr) {
 	    char* bx = (char*) (bxptr + 1);
 	    // Get barcode id
 	    uint32_t hash = _encodeBarcode(boost::to_upper_copy(std::string(bx)));
-	  
+
 	    // Get chromosome id
 	    int32_t chrId = intervalindex + 1;
 	    if (rec->core.pos + halfAlignmentLength(rec) < midpoint) chrId = -1 * chrId;
@@ -365,7 +365,7 @@ int main(int argc, char **argv) {
   typedef boost::unordered_map<TBarcode, std::size_t> TBarcodeIndex;
   TBarcodeIndex barIndex;
   std::size_t barCount = 0;
-  for(TBarcodeChrCount::const_iterator itBC = barChrCount.begin();itBC != barChrCount.end(); ++itBC) 
+  for(TBarcodeChrCount::const_iterator itBC = barChrCount.begin();itBC != barChrCount.end(); ++itBC)
     if (barIndex.find(itBC->first.first) == barIndex.end()) barIndex.insert(std::make_pair(itBC->first.first, barCount++));
 
   // Estimate barcode,#contigs,#reads distributions
@@ -399,7 +399,7 @@ int main(int argc, char **argv) {
   barNumContigs.clear();
   barNumReads.clear();
 
-  // Summarize chromosome counts per valid barcode 
+  // Summarize chromosome counts per valid barcode
   typedef std::pair<TChr, uint32_t> TChrCount;
   typedef std::vector<TChrCount> TChrCountVec;
   typedef boost::unordered_map<TBarcode, TChrCountVec> TBarcodeGenome;
@@ -534,7 +534,7 @@ int main(int argc, char **argv) {
   std::sort(compChr.begin(), compChr.end());
 
   // Output connected components
-  if (c.outccomp) {    
+  if (c.outccomp) {
     std::ofstream ofile(c.componentTable.string().c_str());
     uint32_t lastCompID = 0;
     TCompChr::const_iterator itConnChr = compChr.begin();
@@ -543,7 +543,7 @@ int main(int argc, char **argv) {
       std::string chrName;
       if (c.hasRegionFile) {
 	chrName += hdr->target_name[genomeIntervals[itConnChr->second - 1].chr];
-	chrName += ":"; 
+	chrName += ":";
 	chrName += boost::lexical_cast<std::string>(genomeIntervals[itConnChr->second - 1].start) + "-";
 	chrName += boost::lexical_cast<std::string>(genomeIntervals[itConnChr->second - 1].end);
       } else chrName += hdr->target_name[itConnChr->second - 1];
@@ -567,7 +567,7 @@ int main(int argc, char **argv) {
     TEdgeWeight defaultInnerContigEdge = -10000;
     typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS, VertexProp, boost::property<boost::edge_weight_t, TEdgeWeight> > Graph;
     Graph g;
-    
+
     // Edge property map
     typedef boost::property_map<Graph, boost::edge_weight_t>::type TEdgeMap;
     TEdgeMap weightMap = get(boost::edge_weight, g);
@@ -604,7 +604,7 @@ int main(int argc, char **argv) {
 	} else {
 	  v = pos->second;
 	}
-	      
+
 	// Add inner contig edge
 	boost::graph_traits<Graph>::edge_descriptor e;
 	bool edgeins;
@@ -655,7 +655,7 @@ int main(int argc, char **argv) {
     // Compute minimum spanning tree
     std::vector<boost::graph_traits<Graph>::edge_descriptor> treeEdges;
     boost::kruskal_minimum_spanning_tree(g, std::back_inserter(treeEdges));
-    
+
     // Write Graph
     if (c.outspan) {
       //write_graphviz(fout, g, boost::make_label_writer(boost::get(&VertexProp::name, g)), boost::make_label_writer(boost::get(boost::edge_weight, g)));
@@ -666,7 +666,7 @@ int main(int argc, char **argv) {
 	std::string chrName;
 	if (c.hasRegionFile) {
 	  chrName += hdr->target_name[genomeIntervals[std::abs(g[*viter].chr) - 1].chr];
-	  chrName += ":"; 
+	  chrName += ":";
 	  chrName += boost::lexical_cast<std::string>(genomeIntervals[std::abs(g[*viter].chr) - 1].start) + "-";
 	  chrName += boost::lexical_cast<std::string>(genomeIntervals[std::abs(g[*viter].chr) - 1].end);
 	} else chrName += hdr->target_name[std::abs(g[*viter].chr) - 1];
@@ -691,7 +691,7 @@ int main(int argc, char **argv) {
     }
   }
   if (c.outspan) fout.close();
-  
+
   // Close bam
   bam_hdr_destroy(hdr);
   hts_idx_destroy(idx);
