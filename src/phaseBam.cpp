@@ -340,8 +340,8 @@ int main(int argc, char **argv) {
   // Assign reads to SNPs
   uint32_t assignedReads = 0;
   uint32_t unassignedReads = 0;
-  uint32_t assignedBases = 0;
-  uint32_t unassignedBases = 0;
+  uint64_t assignedBases = 0;
+  uint64_t unassignedBases = 0;
   now = boost::posix_time::second_clock::local_time();
   std::cout << '[' << boost::posix_time::to_simple_string(now) << "] " << "Phasing reads" << std::endl;
   boost::progress_display show_progress(hdr->n_targets);
@@ -401,6 +401,9 @@ int main(int argc, char **argv) {
       if (hp1votes > 2*hp2votes) hp = 1;
       else if (hp2votes > 2*hp1votes) hp = 2;
       if (hp) {
+
+	// ToDo: Take care of PS tags
+
 	++assignedReads;
 	assignedBases += rec->core.l_qseq;
 	bam_aux_append(rec, "HP", 'i', 4, (uint8_t*)&hp);
@@ -425,7 +428,7 @@ int main(int argc, char **argv) {
 
   // Statistics
   uint32_t sumReads = assignedReads + unassignedReads;
-  uint32_t sumBases = assignedBases + unassignedBases;
+  uint64_t sumBases = assignedBases + unassignedBases;
   std::cout << "Assigned Reads=" << assignedReads << ", Unassigned Reads=" << unassignedReads << ", Fraction assigned=" << (float) assignedReads / (float) sumReads << std::endl;
   std::cout << "Assigned Bases=" << assignedBases << ", Unassigned Bases=" << unassignedBases << ", Fraction assigned=" << (float) assignedBases / (float) sumBases << std::endl;
 
